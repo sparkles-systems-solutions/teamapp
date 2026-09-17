@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team App - Login</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f2f2f2; }
+  .box { background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 300px; }
+  input { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+  button { width: 100%; padding: 10px; background: #2b7de9; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+  #msg { color: red; font-size: 14px; min-height: 18px; }
+</style>
+</head>
+<body>
+<div class="box">
+  <h2>Team App Login</h2>
+  <input type="email" id="email" placeholder="Email">
+  <input type="password" id="password" placeholder="Password">
+  <button onclick="login()">Login</button>
+  <p id="msg"></p>
+</div>
+
+<script>
+const SUPABASE_URL = "https://eszwqhemtijsymeuwgus.supabase.co";
+const SUPABASE_KEY = "sb_publishable_QO6S_RY2y6wCkMHwCc6_Pg_p8XjiVby";
+const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+async function login() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const msg = document.getElementById('msg');
+  msg.textContent = "";
+
+  const { data, error } = await client.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    msg.textContent = "Login අසාර්ථකයි: " + error.message;
+    return;
+  }
+
+  window.location.href = "chat.html";
+}
+
+// දැනටමත් login වෙලා නම් chat.html ට direct කරනවා
+client.auth.getSession().then(({ data }) => {
+  if (data.session) window.location.href = "chat.html";
+});
+</script>
+</body>
+</html>
