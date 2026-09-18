@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team App — Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root { --ink: #12203B; --paper: #F7F6F2; --amber: #E8A33D; --slate: #6B7280; --line: #E4E1D8; --danger: #C0392B; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; margin: 0; background: var(--paper); color: var(--ink); }
+  header { background: var(--ink); color: #fff; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+  header a { color: #fff; text-decoration: none; font-size: 12px; font-weight: 600; opacity: 0.85; margin-left: 14px; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 20px; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+  .card h2 { font-size: 14px; margin: 0 0 4px; }
+  .card p.hint { font-size: 12px; color: var(--slate); margin: 0 0 14px; }
+  label { font-size: 12px; font-weight: 600; color: var(--slate); display: block; margin-bottom: 5px; }
+  input { width: 100%; padding: 9px 11px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 8px; font-family: inherit; font-size: 13px; background: var(--paper); }
+  button { padding: 9px 16px; background: var(--ink); color: #fff; border: none; border-radius: 8px; font-family: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
+  button.danger { background: var(--danger); }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  .row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--paper); }
+  .row:last-child { border-bottom: none; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--amber); color: var(--ink); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .row-name { font-weight: 600; font-size: 13px; flex: 1; }
+  .row-name input { margin: 0; padding: 6px 8px; font-size: 13px; }
+  .row-uid { font-size: 10px; color: var(--slate); font-family: monospace; }
+  .actions { display: flex; gap: 6px; }
+  .actions button { padding: 6px 10px; font-size: 11px; }
+  #msg { font-size: 12px; min-height: 16px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <span>Admin Panel</span>
+  <div>
+    <a href="chat.html">← Chat</a>
+    <a href="map.html">Map →</a>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <h2>අලුත් Team Member එකක් add කරන්න</h2>
+    <p class="hint">මුලින්ම Supabase → Authentication → Users → Add user කරලා, ඒ user ගේ UID එක මෙතන දාන්න.</p>
+    <label>User UID</label>
+    <input type="text" id="newUid" placeholder="e.g. a1b2c3d4-...">
+    <label>නම</label>
+    <input type="text" id="newName" placeholder="e.g. Kamal">
+    <button onclick="addMember()">Team එකට Add කරන්න</button>
+    <p id="msg"></p>
+  </div>
+
+  <div class="card">
+    <h2>Team Members</h2>
+    <p class="hint">නම වෙනස් කරන්න, Team (All) group එකෙන් අයින් කරන්න, හෝ profile එකම delete කරන්න.</p>
+    <div id="member-list">Loading...</div>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = "https://eszwqhemtijsymeuwgus.supabase.co";
+const SUPABASE_KEY = "sb_publishable_QO6S_RY2y6wCkMHwCc6_Pg_p8XjiVby";
+const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let teamAllId = null;
+
+function initials(name) {
+  return (name || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
+async function init() {
+  const { data: { session } } = await client.auth.getSession();
+  if (!session) { window.location.href = "index.html"; return; }
+
+  const { data: team } = await client.from('conversations').select('id').eq('name', 'Team (All)').single();
+  if (team) teamAllId = team.id;
+
+  await renderList();
+}
+
+async function renderList() {
+  const { data: profiles } = await client.from('profiles').select('id, name').order('name');
+  const list = document.getElementById('member-list');
+  list.innerHTML = '';
+
+  if (!profiles || profiles.length === 0) {
+    list.innerHTML = '<p style="font-size:13px;color:var(--slate);">කිසිම member කෙනෙක් නැහැ</p>';
+    return;
+  }
+
+  for (const p of profiles) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `
+      <div class="avatar">${initials(p.name)}</div>
+      <div class="row-name">
+        <input type="text" value="${p.name}" data-id="${p.id}" onchange="renameMember('${p.id}', this.value)">
+        <div class="row-uid">${p.id}</div>
+      </div>
+      <div class="actions">
+        <button class="ghost" onclick="removeFromTeam('${p.id}')">Team එකෙන් අයින් කරන්න</button>
+        <button class="danger" onclick="deleteMember('${p.id}', '${p.name.replace(/'/g, "\\'")}')">Delete</button>
+      </div>
+    `;
+    list.appendChild(row);
+  }
+}
+
+async function addMember() {
+  const uid = document.getElementById('newUid').value.trim();
+  const name = document.getElementById('newName').value.trim();
+  const msg = document.getElementById('msg');
+  msg.style.color = 'var(--danger)';
+  msg.textContent = '';
+
+  if (!uid || !name) { msg.textContent = "UID සහ නම දෙකම දාන්න"; return; }
+
+  const { error: pErr } = await client.from('profiles').insert({ id: uid, name });
+  if (pErr) { msg.textContent = "Error: " + pErr.message; return; }
+
+  if (teamAllId) {
+    await client.from('conversation_members').insert({ conversation_id: teamAllId, user_id: uid });
+  }
+
+  msg.style.color = 'var(--success, #639922)';
+  msg.textContent = "Add කළා ✓";
+  document.getElementById('newUid').value = '';
+  document.getElementById('newName').value = '';
+  await renderList();
+}
+
+async function renameMember(id, newName) {
+  await client.from('profiles').update({ name: newName }).eq('id', id);
+}
+
+async function removeFromTeam(id) {
+  if (!teamAllId) return;
+  if (!confirm("Team (All) group එකෙන් අයින් කරන්නද?")) return;
+  await client.from('conversation_members').delete().eq('conversation_id', teamAllId).eq('user_id', id);
+  alert("Team එකෙන් අයින් කළා");
+}
+
+async function deleteMember(id, name) {
+  if (!confirm(`${name} ගේ profile එකම delete කරන්නද? (Chat/message history පවතිනවා, ඒත් නම පේන්නේ නැහැ)`)) return;
+  await client.from('profiles').delete().eq('id', id);
+  await renderList();
+}
+
+init();
+</script>
+</body>
+</html>
