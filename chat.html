@@ -19,9 +19,10 @@
 
   #sidebar { width: 280px; background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0; }
   #sidebar-header { background: var(--ink); color: #fff; padding: 16px 14px; font-weight: 700; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
+  #sidebar-header .links { display: flex; gap: 10px; }
   #sidebar-header a { color: #fff; text-decoration: none; font-size: 12px; font-weight: 600; opacity: 0.85; }
   #convo-list { flex: 1; overflow-y: auto; }
-  .convo-item { padding: 10px 14px; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .convo-item { padding: 10px 14px; cursor: pointer; display: flex; align-items: center; gap: 10px; justify-content: space-between; }
   .convo-item:hover { background: var(--paper); }
   .convo-item.active { background: #FAEEDA; }
   .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -59,7 +60,10 @@
   <div id="sidebar">
     <div id="sidebar-header">
       <span>Team App</span>
-      <a href="map.html">Map →</a>
+      <div class="links">
+        <a href="map.html">Map →</a>
+        <a href="admin.html">Admin →</a>
+      </div>
     </div>
     <div id="convo-list"></div>
   </div>
@@ -163,8 +167,10 @@ async function renderSidebar() {
     if (user.id === currentUserId) continue;
     const div = document.createElement('div');
     div.className = 'convo-item';
-    div.innerHTML = `<div class="avatar amber">${initials(user.name)}</div><div class="convo-name">${user.name}</div>`;
-    div.onclick = () => startOrOpenDM(user.id, user.name);
+    div.innerHTML = `<div class="avatar amber">${initials(user.name)}</div>
+      <div class="convo-name" style="flex:1;">${user.name}</div>
+      <a href="map.html?focus=${user.id}" style="text-decoration:none; font-size:14px; padding:4px;" title="Location බලන්න">📍</a>`;
+    div.onclick = (e) => { if (e.target.tagName !== 'A') startOrOpenDM(user.id, user.name); };
     list.appendChild(div);
   }
 }
