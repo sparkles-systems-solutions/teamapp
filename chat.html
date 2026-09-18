@@ -6,10 +6,10 @@
 <title>Team Chat</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-  * { box-sizing: border-box; } * { box-sizing: border-box; }
-.hide { display: none; }
+  * { box-sizing: border-box; }
   body { font-family: sans-serif; margin: 0; height: 100vh; overflow: hidden; background: #f2f2f2; }
   .app { display: flex; height: 100vh; }
+  .hide { display: none !important; }
 
   /* Sidebar */
   #sidebar { width: 280px; background: #fff; border-right: 1px solid #ddd; display: flex; flex-direction: column; flex-shrink: 0; }
@@ -22,7 +22,9 @@
   .convo-sub { font-size: 12px; color: #888; }
   .section-label { padding: 10px 14px 4px; font-size: 11px; color: #999; text-transform: uppercase; }
 
-  /* Chat area */
+  /* Right side: either chat-area or empty-state, never both */
+  #right-side { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
   #chat-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   #chat-header { background: #2b7de9; color: #fff; padding: 12px 14px; display: flex; align-items: center; gap: 10px; }
   #back-btn { display: none; background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; }
@@ -39,9 +41,7 @@
   /* Mobile responsive */
   @media (max-width: 700px) {
     #sidebar { width: 100%; position: absolute; z-index: 10; height: 100%; }
-    #sidebar.hide { display: none; }
-    #chat-area { width: 100%; }
-    #chat-area.hide { display: none; }
+    #right-side { width: 100%; }
     #back-btn { display: inline-block; }
   }
 </style>
@@ -56,19 +56,21 @@
     <div id="convo-list"></div>
   </div>
 
-  <div id="chat-area" class="hide">
-    <div id="chat-header">
-      <button id="back-btn" onclick="showSidebar()">←</button>
-      <span id="chat-title">Chat</span>
-    </div>
-    <div id="messages"></div>
-    <div id="inputbar">
-      <input type="text" id="msgInput" placeholder="Message එකක් ලියන්න...">
-      <button onclick="sendMessage()">යවන්න</button>
+  <div id="right-side">
+    <div id="empty-state">Chat එකක් තෝරන්න</div>
+
+    <div id="chat-area" class="hide">
+      <div id="chat-header">
+        <button id="back-btn" onclick="showSidebar()">←</button>
+        <span id="chat-title">Chat</span>
+      </div>
+      <div id="messages"></div>
+      <div id="inputbar">
+        <input type="text" id="msgInput" placeholder="Message එකක් ලියන්න...">
+        <button onclick="sendMessage()">යවන්න</button>
+      </div>
     </div>
   </div>
-
-  <div id="empty-state">Chat එකක් තෝරන්න</div>
 </div>
 
 <script>
@@ -90,7 +92,7 @@ async function init() {
 
   await loadProfiles();
   await loadMyConversations();
-  renderSidebar();
+  await renderSidebar();
   subscribeConversationUpdates();
 }
 
@@ -107,12 +109,7 @@ async function loadMyConversations() {
     .from('conversation_members')
     .select('conversation_id, conversations(id, name, is_group)')
     .eq('user_id', currentUserId);
-  if (data) myConversations = data.map(d => d.conversations);
-}
-
-function otherMemberName(convo) {
-  // for DMs, name is null -> resolve via members (simplified: name stored as null, we look up via cache using convo.id later)
-  return convo.name;
+  if (data) myConversations = data.map(d => d.conversations).filter(Boolean);
 }
 
 async function getConvoDisplayName(convo) {
@@ -160,7 +157,6 @@ async function renderSidebar() {
 }
 
 async function startOrOpenDM(otherUserId, otherName) {
-  // check if a DM conversation already exists between the two
   for (const convo of myConversations) {
     if (convo.is_group) continue;
     const { data } = await client
@@ -174,7 +170,6 @@ async function startOrOpenDM(otherUserId, otherName) {
     }
   }
 
-  // create new conversation
   const { data: newConvo, error } = await client
     .from('conversations')
     .insert({ is_group: false })
@@ -196,7 +191,7 @@ async function startOrOpenDM(otherUserId, otherName) {
 async function openConversation(convoId, title) {
   activeConversationId = convoId;
   document.getElementById('chat-title').textContent = title;
-  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('empty-state').classList.add('hide');
   document.getElementById('chat-area').classList.remove('hide');
 
   if (window.innerWidth <= 700) {
@@ -210,7 +205,6 @@ async function openConversation(convoId, title) {
 
 function showSidebar() {
   document.getElementById('sidebar').classList.remove('hide');
-  document.getElementById('chat-area').classList.add('hide');
 }
 
 async function loadMessages(convoId) {
@@ -235,4 +229,57 @@ function renderMessage(m) {
 }
 
 function escapeHtml(text) {
-  const d =
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+function scrollToBottom() {
+  const box = document.getElementById('messages');
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendMessage() {
+  if (!activeConversationId) return;
+  const input = document.getElementById('msgInput');
+  const body = input.value.trim();
+  if (!body) return;
+  input.value = '';
+
+  const { error } = await client.from('messages').insert({
+    user_id: currentUserId,
+    body,
+    conversation_id: activeConversationId
+  });
+  if (error) alert("Send error: " + error.message);
+}
+
+function subscribeMessages(convoId) {
+  if (msgChannel) client.removeChannel(msgChannel);
+  msgChannel = client
+    .channel('messages-' + convoId)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${convoId}` }, (payload) => {
+      renderMessage(payload.new);
+      scrollToBottom();
+    })
+    .subscribe();
+}
+
+function subscribeConversationUpdates() {
+  client
+    .channel('convo-updates')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversation_members', filter: `user_id=eq.${currentUserId}` }, async () => {
+      await loadMyConversations();
+      renderSidebar();
+    })
+    .subscribe();
+}
+
+document.getElementById('msgInput').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') sendMessage();
+});
+
+init();
+</script>
+</body>
+</html>
