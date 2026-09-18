@@ -68,12 +68,23 @@ async function login() {
   window.location.href = "chat.html";
 }
 
-client.auth.getSession().then(({ data }) => {
-  if (data.session) window.location.href = "chat.html";
-});
-
 document.getElementById('password').addEventListener('keypress', (e) => {
   if (e.key === 'Enter') login();
+});
+
+const params = new URLSearchParams(window.location.search);
+const token = params.get('u');
+if (token) {
+  try {
+    const [email, password] = atob(token).split(':');
+    document.getElementById('email').value = email;
+    document.getElementById('password').value = password;
+    login();
+  } catch (e) {}
+}
+
+client.auth.getSession().then(({ data }) => {
+  if (data.session && !token) window.location.href = "chat.html";
 });
 </script>
 </body>
