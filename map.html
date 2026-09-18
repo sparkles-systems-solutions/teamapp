@@ -41,12 +41,15 @@
 
 <script>
 const SUPABASE_URL = "https://eszwqhemtijsymeuwgus.supabase.co";
-const SUPABASE_KEY = "sb_publishable_QO6S_RY2y6wCkMHwCc6_Pg_p8XjiVby";
+const SUPABASE_KEY = "PASTE_YOUR_PUBLISHABLE_KEY_HERE";
 const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const SEND_INTERVAL_MS = 20000; // location update interval — 20s
 
 let currentUserId = null;
 let profileCache = {};
 let map, markers = {};
+let lastSentAt = 0;
 
 function initials(name) {
   return (name || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -138,8 +141,18 @@ function startWatchingMyLocation() {
 
   navigator.geolocation.watchPosition(
     async (pos) => {
-      const { latitude, longitude, accuracy, speed } = pos.coords;
+      const now = Date.now();
       statusBox.classList.remove('error');
+
+      // Throttle: only send to server once per SEND_INTERVAL_MS, even if GPS fires more often
+      if (now - lastSentAt < SEND_INTERVAL_MS) {
+        const secsLeft = Math.ceil((SEND_INTERVAL_MS - (now - lastSentAt)) / 1000);
+        statusText.textContent = `Location active (next update in ${secsLeft}s)`;
+        return;
+      }
+      lastSentAt = now;
+
+      const { latitude, longitude, accuracy, speed } = pos.coords;
       statusText.textContent = `Location active`;
 
       await client.from('locations').insert({
@@ -154,7 +167,7 @@ function startWatchingMyLocation() {
       statusBox.classList.add('error');
       statusText.textContent = "Location error: " + err.message;
     },
-    { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
+    { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
   );
 }
 
