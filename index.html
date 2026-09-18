@@ -3,21 +3,51 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Team App - Login</title>
+<title>Team App — Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-  body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f2f2f2; }
-  .box { background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 300px; }
-  input { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
-  button { width: 100%; padding: 10px; background: #2b7de9; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
-  #msg { color: red; font-size: 14px; min-height: 18px; }
+  :root {
+    --ink: #12203B; --paper: #F7F6F2; --amber: #E8A33D;
+    --slate: #6B7280; --line: #E4E1D8; --danger: #C0392B;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Inter', sans-serif; margin: 0; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--paper); color: var(--ink);
+  }
+  .card {
+    background: #fff; width: 320px; padding: 36px 32px; border-radius: 14px;
+    border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(18,32,59,0.08);
+  }
+  .mark { width: 40px; height: 40px; border-radius: 10px; background: var(--ink); margin-bottom: 18px; }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+  p.sub { color: var(--slate); font-size: 13px; margin: 0 0 22px; }
+  label { font-size: 12px; font-weight: 600; color: var(--slate); display: block; margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 11px 12px; margin-bottom: 16px; border: 1px solid var(--line);
+    border-radius: 8px; font-family: inherit; font-size: 14px; background: var(--paper);
+  }
+  input:focus { outline: 2px solid var(--amber); outline-offset: 1px; border-color: var(--amber); }
+  button {
+    width: 100%; padding: 12px; background: var(--ink); color: #fff; border: none;
+    border-radius: 8px; font-family: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #1a2d51; }
+  #msg { color: var(--danger); font-size: 13px; min-height: 18px; margin-top: 12px; }
 </style>
 </head>
 <body>
-<div class="box">
-  <h2>Team App Login</h2>
-  <input type="email" id="email" placeholder="Email">
-  <input type="password" id="password" placeholder="Password">
+<div class="card">
+  <div class="mark"></div>
+  <h1>Team App</h1>
+  <p class="sub">Chat සහ location tracking</p>
+  <label for="email">Email</label>
+  <input type="email" id="email" placeholder="you@example.com">
+  <label for="password">Password</label>
+  <input type="password" id="password" placeholder="••••••••">
   <button onclick="login()">Login</button>
   <p id="msg"></p>
 </div>
@@ -34,18 +64,16 @@ async function login() {
   msg.textContent = "";
 
   const { data, error } = await client.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    msg.textContent = "Login අසාර්ථකයි: " + error.message;
-    return;
-  }
-
+  if (error) { msg.textContent = "Login අසාර්ථකයි: " + error.message; return; }
   window.location.href = "chat.html";
 }
 
-// දැනටමත් login වෙලා නම් chat.html ට direct කරනවා
 client.auth.getSession().then(({ data }) => {
   if (data.session) window.location.href = "chat.html";
+});
+
+document.getElementById('password').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') login();
 });
 </script>
 </body>
