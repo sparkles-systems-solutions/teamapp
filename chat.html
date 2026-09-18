@@ -170,22 +170,13 @@ async function startOrOpenDM(otherUserId, otherName) {
     }
   }
 
-  const { data: newConvo, error } = await client
-    .from('conversations')
-    .insert({ is_group: false })
-    .select()
-    .single();
+    const { data: newConvoId, error } = await client.rpc('create_dm', { other_user: otherUserId });
 
   if (error) { alert("Error: " + error.message); return; }
 
-  await client.from('conversation_members').insert([
-    { conversation_id: newConvo.id, user_id: currentUserId },
-    { conversation_id: newConvo.id, user_id: otherUserId }
-  ]);
-
   await loadMyConversations();
   await renderSidebar();
-  openConversation(newConvo.id, otherName);
+  openConversation(newConvoId, otherName);
 }
 
 async function openConversation(convoId, title) {
