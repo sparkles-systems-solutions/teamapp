@@ -39,6 +39,10 @@
   .msg { background: #fff; border: 1px solid var(--line); padding: 8px 12px; border-radius: 10px; margin-bottom: 10px; max-width: 75%; word-wrap: break-word; font-size: 13px; line-height: 1.5; }
   .msg .name { font-size: 11px; color: var(--amber); font-weight: 700; display: block; margin-bottom: 2px; }
   .msg .time { font-size: 10px; color: var(--slate); float: right; margin-left: 8px; }
+  .msg .tick { font-size: 10px; margin-left: 4px; }
+  .tick.sent { color: rgba(255,255,255,0.5); }
+  .tick.delivered { color: rgba(255,255,255,0.7); }
+  .tick.read { color: #6FD3FF; }
   .mine { margin-left: auto; background: var(--ink); color: #fff; border-color: var(--ink); }
   .mine .name { color: #FAC775; }
   .mine .time { color: rgba(255,255,255,0.6); }
@@ -87,7 +91,7 @@
 
 <script>
 const SUPABASE_URL = "https://eszwqhemtijsymeuwgus.supabase.co";
-const SUPABASE_KEY = "sb_publishable_QO6S_RY2y6wCkMHwCc6_Pg_p8XjiVby";
+const SUPABASE_KEY = "PASTE_YOUR_PUBLISHABLE_KEY_HERE";
 const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentUserId = null;
@@ -96,6 +100,9 @@ let allUsers = [];
 let myConversations = [];
 let activeConversationId = null;
 let msgChannel = null;
+let readsChannel = null;
+let readsByMessage = {}; // messageId -> Set(userId)
+let otherMembersCount = 0;
 
 function initials(name) {
   return (name || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -207,9 +214,17 @@ async function openConversation(convoId, title) {
     document.getElementById('sidebar').classList.add('hide');
   }
 
+  const { count } = await client
+    .from('conversation_members')
+    .select('*', { count: 'exact', head: true })
+    .eq('conversation_id', convoId)
+    .neq('user_id', currentUserId);
+  otherMembersCount = count || 0;
+
   await renderSidebar();
   await loadMessages(convoId);
   subscribeMessages(convoId);
+  subscribeReads(convoId);
 }
 
 function showSidebar() {
@@ -218,22 +233,54 @@ function showSidebar() {
 
 async function loadMessages(convoId) {
   document.getElementById('messages').innerHTML = '';
+  readsByMessage = {};
+
   const { data } = await client
     .from('messages')
     .select('*')
     .eq('conversation_id', convoId)
     .order('created_at', { ascending: true })
     .limit(100);
-  if (data) data.forEach(renderMessage);
-  scrollToBottom();
+
+  if (data && data.length) {
+    const ids = data.map(m => m.id);
+    const { data: reads } = await client
+      .from('message_reads')
+      .select('message_id, user_id')
+      .in('message_id', ids);
+    if (reads) {
+      reads.forEach(r => {
+        if (!readsByMessage[r.message_id]) readsByMessage[r.message_id] = new Set();
+        readsByMessage[r.message_id].add(r.user_id);
+      });
+    }
+    data.forEach(renderMessage);
+    scrollToBottom();
+    await markOthersAsRead(data.filter(m => m.user_id !== currentUserId).map(m => m.id), convoId);
+  }
+}
+
+async function markOthersAsRead(messageIds, convoId) {
+  if (!messageIds.length) return;
+  const rows = messageIds.map(id => ({ message_id: id, conversation_id: convoId, user_id: currentUserId }));
+  await client.from('message_reads').upsert(rows, { onConflict: 'message_id,user_id', ignoreDuplicates: true });
+}
+
+function tickHtml(messageId) {
+  const readers = readsByMessage[messageId] ? readsByMessage[messageId].size : 0;
+  if (readers >= otherMembersCount && otherMembersCount > 0) return `<span class="tick read">✓✓</span>`;
+  if (readers > 0) return `<span class="tick delivered">✓✓</span>`;
+  return `<span class="tick sent">✓</span>`;
 }
 
 function renderMessage(m) {
   const div = document.createElement('div');
   div.className = 'msg' + (m.user_id === currentUserId ? ' mine' : '');
+  div.dataset.msgId = m.id;
   const name = profileCache[m.user_id] || 'Unknown';
   const time = new Date(m.created_at).toLocaleTimeString('si-LK', { hour: '2-digit', minute: '2-digit' });
-  div.innerHTML = `<span class="name">${name}</span>${escapeHtml(m.body)}<span class="time">${time}</span>`;
+  const tick = m.user_id === currentUserId ? tickHtml(m.id) : '';
+  div.innerHTML = `<span class="name">${name}</span>${escapeHtml(m.body)}<span class="time">${time}${tick}</span>`;
   document.getElementById('messages').appendChild(div);
 }
 
@@ -267,9 +314,30 @@ function subscribeMessages(convoId) {
   if (msgChannel) client.removeChannel(msgChannel);
   msgChannel = client
     .channel('messages-' + convoId)
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${convoId}` }, (payload) => {
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${convoId}` }, async (payload) => {
       renderMessage(payload.new);
       scrollToBottom();
+      if (payload.new.user_id !== currentUserId) {
+        await markOthersAsRead([payload.new.id], convoId);
+      }
+    })
+    .subscribe();
+}
+
+function subscribeReads(convoId) {
+  if (readsChannel) client.removeChannel(readsChannel);
+  readsChannel = client
+    .channel('reads-' + convoId)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'message_reads', filter: `conversation_id=eq.${convoId}` }, (payload) => {
+      const { message_id, user_id } = payload.new;
+      if (!readsByMessage[message_id]) readsByMessage[message_id] = new Set();
+      readsByMessage[message_id].add(user_id);
+
+      const msgEl = document.querySelector(`.msg[data-msg-id="${message_id}"] .tick`);
+      if (msgEl) {
+        const readers = readsByMessage[message_id].size;
+        msgEl.className = 'tick ' + (readers >= otherMembersCount && otherMembersCount > 0 ? 'read' : 'delivered');
+      }
     })
     .subscribe();
 }
