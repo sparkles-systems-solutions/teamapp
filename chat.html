@@ -8,10 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-  :root {
-    --ink: #12203B; --paper: #F7F6F2; --amber: #E8A33D;
-    --slate: #6B7280; --line: #E4E1D8;
-  }
+  :root { --ink: #12203B; --paper: #F7F6F2; --amber: #E8A33D; --slate: #6B7280; --line: #E4E1D8; }
   * { box-sizing: border-box; }
   body { font-family: 'Inter', sans-serif; margin: 0; height: 100vh; overflow: hidden; background: var(--paper); color: var(--ink); }
   .app { display: flex; height: 100vh; }
@@ -46,11 +43,14 @@
   .mine { margin-left: auto; background: var(--ink); color: #fff; border-color: var(--ink); }
   .mine .name { color: #FAC775; }
   .mine .time { color: rgba(255,255,255,0.6); }
-  #inputbar { display: flex; gap: 8px; padding: 12px; background: #fff; border-top: 1px solid var(--line); }
-  #inputbar input { flex: 1; padding: 10px 14px; border: 1px solid var(--line); border-radius: 20px; min-width: 0; font-family: inherit; font-size: 13px; background: var(--paper); }
-  #inputbar input:focus { outline: none; border-color: var(--amber); }
+  .msg img, .msg video { max-width: 100%; border-radius: 8px; margin-top: 6px; display: block; }
+  #inputbar { display: flex; gap: 8px; padding: 12px; background: #fff; border-top: 1px solid var(--line); align-items: center; }
+  #inputbar input[type=text] { flex: 1; padding: 10px 14px; border: 1px solid var(--line); border-radius: 20px; min-width: 0; font-family: inherit; font-size: 13px; background: var(--paper); }
+  #inputbar input[type=text]:focus { outline: none; border-color: var(--amber); }
   #inputbar button { padding: 10px 18px; background: var(--ink); color: #fff; border: none; border-radius: 20px; font-family: inherit; font-weight: 600; font-size: 13px; cursor: pointer; flex-shrink: 0; }
+  #attach-btn { background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 50%; width: 38px; height: 38px; font-size: 16px; cursor: pointer; flex-shrink: 0; }
   #empty-state { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--slate); font-size: 13px; }
+  #upload-status { font-size: 11px; color: var(--slate); padding: 0 12px 8px; }
 
   @media (max-width: 700px) {
     #sidebar { width: 100%; position: absolute; z-index: 10; height: 100%; }
@@ -66,7 +66,7 @@
       <span>Team App</span>
       <div class="links">
         <a href="map.html">Map →</a>
-        <a href="admin.html">Admin →</a>
+        <a href="admin.html" id="admin-link" class="hide">Admin →</a>
       </div>
     </div>
     <div id="convo-list"></div>
@@ -81,7 +81,10 @@
         <span id="chat-title">Chat</span>
       </div>
       <div id="messages"></div>
+      <p id="upload-status"></p>
       <div id="inputbar">
+        <button id="attach-btn" onclick="document.getElementById('fileInput').click()">📎</button>
+        <input type="file" id="fileInput" accept="image/*,video/*" class="hide" onchange="handleFile(event)">
         <input type="text" id="msgInput" placeholder="Message එකක් ලියන්න...">
         <button onclick="sendMessage()">යවන්න</button>
       </div>
@@ -95,13 +98,14 @@ const SUPABASE_KEY = "sb_publishable_QO6S_RY2y6wCkMHwCc6_Pg_p8XjiVby";
 const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentUserId = null;
+let myRole = 'member';
 let profileCache = {};
 let allUsers = [];
 let myConversations = [];
 let activeConversationId = null;
 let msgChannel = null;
 let readsChannel = null;
-let readsByMessage = {}; // messageId -> Set(userId)
+let readsByMessage = {};
 let otherMembersCount = 0;
 
 function initials(name) {
@@ -113,6 +117,10 @@ async function init() {
   if (!session) { window.location.href = "index.html"; return; }
   currentUserId = session.user.id;
 
+  const { data: me } = await client.from('profiles').select('role').eq('id', currentUserId).single();
+  myRole = me?.role || 'member';
+  if (myRole === 'admin') document.getElementById('admin-link').classList.remove('hide');
+
   await loadProfiles();
   await loadMyConversations();
   await renderSidebar();
@@ -120,7 +128,8 @@ async function init() {
 }
 
 async function loadProfiles() {
-  const { data } = await client.from('profiles').select('id, name');
+  // RLS now restricts this: admin sees everyone, member sees only self + admin
+  const { data } = await client.from('profiles').select('id, name, role');
   if (data) {
     allUsers = data;
     data.forEach(p => profileCache[p.id] = p.name);
@@ -165,20 +174,24 @@ async function renderSidebar() {
     list.appendChild(div);
   }
 
-  const teamLabel = document.createElement('div');
-  teamLabel.className = 'section-label';
-  teamLabel.textContent = 'TEAM MEMBERS';
-  list.appendChild(teamLabel);
+  // Admin only: browse all members to start a new DM. Members never see this list —
+  // their only DM (with admin) already exists in "Chats" above.
+  if (myRole === 'admin') {
+    const teamLabel = document.createElement('div');
+    teamLabel.className = 'section-label';
+    teamLabel.textContent = 'ALL MEMBERS';
+    list.appendChild(teamLabel);
 
-  for (const user of allUsers) {
-    if (user.id === currentUserId) continue;
-    const div = document.createElement('div');
-    div.className = 'convo-item';
-    div.innerHTML = `<div class="avatar amber">${initials(user.name)}</div>
-      <div class="convo-name" style="flex:1;">${user.name}</div>
-      <a href="map.html?focus=${user.id}" style="text-decoration:none; font-size:14px; padding:4px;" title="Location බලන්න">📍</a>`;
-    div.onclick = (e) => { if (e.target.tagName !== 'A') startOrOpenDM(user.id, user.name); };
-    list.appendChild(div);
+    for (const user of allUsers) {
+      if (user.id === currentUserId) continue;
+      const div = document.createElement('div');
+      div.className = 'convo-item';
+      div.innerHTML = `<div class="avatar amber">${initials(user.name)}</div>
+        <div class="convo-name" style="flex:1;">${user.name}</div>
+        <a href="map.html?focus=${user.id}" style="text-decoration:none; font-size:14px; padding:4px;" title="Location බලන්න">📍</a>`;
+      div.onclick = (e) => { if (e.target.tagName !== 'A') startOrOpenDM(user.id, user.name); };
+      list.appendChild(div);
+    }
   }
 }
 
@@ -273,6 +286,12 @@ function tickHtml(messageId) {
   return `<span class="tick sent">✓</span>`;
 }
 
+function attachmentHtml(m) {
+  if (!m.attachment_url) return '';
+  if (m.attachment_type === 'video') return `<video src="${m.attachment_url}" controls></video>`;
+  return `<img src="${m.attachment_url}" alt="attachment">`;
+}
+
 function renderMessage(m) {
   const div = document.createElement('div');
   div.className = 'msg' + (m.user_id === currentUserId ? ' mine' : '');
@@ -280,7 +299,7 @@ function renderMessage(m) {
   const name = profileCache[m.user_id] || 'Unknown';
   const time = new Date(m.created_at).toLocaleTimeString('si-LK', { hour: '2-digit', minute: '2-digit' });
   const tick = m.user_id === currentUserId ? tickHtml(m.id) : '';
-  div.innerHTML = `<span class="name">${name}</span>${escapeHtml(m.body)}<span class="time">${time}${tick}</span>`;
+  div.innerHTML = `<span class="name">${name}</span>${m.body ? escapeHtml(m.body) : ''}${attachmentHtml(m)}<span class="time">${time}${tick}</span>`;
   document.getElementById('messages').appendChild(div);
 }
 
@@ -308,6 +327,45 @@ async function sendMessage() {
     conversation_id: activeConversationId
   });
   if (error) alert("Send error: " + error.message);
+}
+
+async function handleFile(event) {
+  const file = event.target.files[0];
+  if (!file || !activeConversationId) return;
+
+  const statusEl = document.getElementById('upload-status');
+  const maxSizeMB = 25;
+  if (file.size > maxSizeMB * 1024 * 1024) {
+    alert(`File එක ${maxSizeMB}MB ට වඩා loku — කුඩා file එකක් තෝරන්න`);
+    event.target.value = '';
+    return;
+  }
+
+  const isVideo = file.type.startsWith('video/');
+  const isImage = file.type.startsWith('image/');
+  if (!isVideo && !isImage) { alert("Image හෝ video file එකක් විතරයි"); return; }
+
+  statusEl.textContent = "Upload වෙමින්...";
+
+  const ext = file.name.split('.').pop();
+  const path = `${currentUserId}/${Date.now()}.${ext}`;
+
+  const { error: upErr } = await client.storage.from('chat-media').upload(path, file);
+  if (upErr) { statusEl.textContent = ""; alert("Upload error: " + upErr.message); return; }
+
+  const { data: urlData } = client.storage.from('chat-media').getPublicUrl(path);
+
+  const { error: msgErr } = await client.from('messages').insert({
+    user_id: currentUserId,
+    body: null,
+    conversation_id: activeConversationId,
+    attachment_url: urlData.publicUrl,
+    attachment_type: isVideo ? 'video' : 'image'
+  });
+
+  statusEl.textContent = "";
+  event.target.value = '';
+  if (msgErr) alert("Send error: " + msgErr.message);
 }
 
 function subscribeMessages(convoId) {
